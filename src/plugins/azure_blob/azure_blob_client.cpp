@@ -27,6 +27,7 @@
 #include <cstdlib>
 #include <absl/strings/str_format.h>
 #include "common/configuration.h"
+#include "common/nixl_log.h"
 #include "nixl_types.h"
 
 namespace {
@@ -177,19 +178,30 @@ azureBlobClient::getBlobAsync(std::string_view blob_name,
     });
 }
 
-bool
-azureBlobClient::checkBlobExists(std::string_view blob_name) {
-    auto blobClient = blobContainerClient_->GetBlockBlobClient(std::string(blob_name));
-    Azure::Storage::Blobs::GetBlobPropertiesOptions options;
-    try {
-        blobClient.GetProperties(options);
-    }
-    catch (const Azure::Core::RequestFailedException &e) {
-        if (e.StatusCode == Azure::Core::Http::HttpStatusCode::NotFound) {
-            return false;
-        } else {
-            throw std::runtime_error("Failed to check if blob exists: " + std::string(e.what()));
+void
+azureBlobClient::checkBlobExistsAsync(std::string_view blob_name,
+                                      check_blob_callback_t callback) {
+    std::string blob_name_str(blob_name);
+    asio::post(*executor_, [this, blob_name_str, callback]() {
+        try {
+            auto blobClient = blobContainerClient_->GetBlockBlobClient(blob_name_str);
+            Azure::Storage::Blobs::GetBlobPropertiesOptions options;
+            try {
+                blobClient.GetProperties(options);
+                callback(true);
+            }
+            catch (const Azure::Core::RequestFailedException &e) {
+                if (e.StatusCode == Azure::Core::Http::HttpStatusCode::NotFound) {
+                    callback(false);
+                } else {
+                    NIXL_ERROR << "checkBlobExistsAsync error: " << e.what();
+                    callback(std::nullopt);
+                }
+            }
         }
-    }
-    return true;
+        catch (const std::exception &e) {
+            NIXL_ERROR << "checkBlobExistsAsync error: " << e.what();
+            callback(std::nullopt);
+        }
+    });
 }

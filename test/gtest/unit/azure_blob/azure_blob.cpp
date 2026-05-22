@@ -73,10 +73,10 @@ public:
         });
     }
 
-    bool
-    checkBlobExists(std::string_view key) override {
+    void
+    checkBlobExistsAsync(std::string_view key, check_blob_callback_t callback) override {
         checkedKeys_.insert(std::string(key));
-        return simulateSuccess_;
+        callback(std::optional<bool>(simulateSuccess_));
     }
 
     void
